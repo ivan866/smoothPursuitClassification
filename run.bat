@@ -1,0 +1,1 @@
+c:\Anaconda\python SmoothPursuitClassification.py --settings-file=SettingsExample.xml --filter=spline --detector=ivt --classifier=irf --plots=xyt

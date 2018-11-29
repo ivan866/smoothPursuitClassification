@@ -1,0 +1,8 @@
+---------------
+2018-10-01 SmoothPursuitClassification 0.1
+---------------
+
+What's new?
+
+- Repository started at gitlab.com/ivan866/smoothPursuitClassification
+- New feature: debug log

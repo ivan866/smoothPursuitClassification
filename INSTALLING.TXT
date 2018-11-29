@@ -1,0 +1,7 @@
+- Download the release .zip file from the repository, unpack.
+- Install Python 3.x, preferably the Anaconda distribution.
+- Locate the file requirements.txt in the root of unpacked repository and run
+python.exe -m pip install -r requirements.txt)
+- edit SettingsExample.xml
+- execute run.bat
+- the output is saved to a new directory starting with current date

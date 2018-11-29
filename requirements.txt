@@ -1,0 +1,4 @@
+scipy>=1.0.0
+numpy
+pandas>=0.21.1
+angles>=2.0
