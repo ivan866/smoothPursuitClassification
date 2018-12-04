@@ -1,9 +1,13 @@
+import math
 from datetime import timedelta
 
+
+import numpy as np
+from scipy.signal import savgol_filter
 from pandas import DataFrame
 
 
-from SettingsReader import SettingsReader
+from utils.SettingsReader import SettingsReader
 from utils import Utils
 
 
@@ -17,8 +21,8 @@ class MultiData():
 
     def __init__(self, main):
         self.main = main
-        self.settingsReader = SettingsReader.getReader()
-        self.multiData={}
+        self.settingsReader = main.settingsReader
+        self.multiData = {}
         self.multiData['availColumns'] = {}
         self.multiData['samples'] = {}
         self.multiData['messages'] = {}
@@ -27,27 +31,26 @@ class MultiData():
 
 
 
-    def genChannelIds(self, channel:str)->tuple:
-        """Generator of ids present in multiData in particular channel.
+    def genChannelIds(self, channel:str) -> tuple:
+        """Generator of ids present in multiData in particular channel (i.e. 'type' tag).
 
         :param channel:
         :return: Tuple with current channel and id, if such id present in multiData.
         """
         if self.settingsReader.check() and self.check():
             for file in self.settingsReader.getTypes(channel):
-                id=file.get('id')
+                id = file.get('id')
                 if self.hasChannelById(channel, id):
                     yield (channel, id)
 
 
-
-
-    def reset(self)->None:
+    def reset(self) -> None:
         """Makes this multiData empty.
         
         :return: None.
         """
         self.__init__(self.main)
+
 
     def setNode(self, channel: str, id: str, data: object) -> None:
         """Sets chosen node in hierarchy of multiData to given data object.
@@ -59,7 +62,9 @@ class MultiData():
         """
         #self.main.logger.debug('setting data node...')
         self.multiData[channel][id] = data
-        self.empty=False
+        self.empty = False
+
+
 
 
 
@@ -85,27 +90,32 @@ class MultiData():
         elif format=='as_is':
             return result
 
-    def getChannelAndTag(self, channel:str, id:str, format:str='as_is', ignoreEmpty:bool=True)->object:
+    def getChannelAndTag(self, channel:str, id:str, block:str, format:str='as_is', ignoreEmpty:bool=True) -> object:
         """Returns what's inside the given channel, but tags the data by record tag, id and interval first.
         
         :param channel: 
         :param id:
+        :param block: which block to tag by.
         :param format: str for type conversion
         :param ignoreEmpty: Whether to cut off the empty and utility intervals.
         :return: 
         """
         chData = self.getChannelById(channel, id, format=format)
-        startFrom = self.settingsReader.getZeroTimeById(channel, id)
-        pathAttr=self.settingsReader.getPathAttrById(type=channel, id=id)
+        #zeroTime tag only applicable to INTERVALS block, because it is predefined for data channels
+        if block == 'interval':
+            startFrom = self.settingsReader.getZeroTimeById(channel, id)
+        else:
+            startFrom = 0
+        pathAttr = self.settingsReader.getPathAttrById(type=channel, id=id)
         if ('Record tag' not in chData.columns) and ('Id' not in chData.columns):
             chData.insert(2, 'Record tag', pathAttr)
             chData.insert(3, 'Id', id)
         #FIXME hotfix
         elif 'Id 2' not in chData.columns:
-            chData['Record tag']=pathAttr
+            chData['Record tag'] = pathAttr
             chData.insert(8, 'Id 2', id)
 
-        return self.tagIntervals(chData, startFrom, ignoreEmpty=ignoreEmpty)
+        return self.tagIntervals(chData, startFrom, block=block, ignoreEmpty=ignoreEmpty)
 
 
 
@@ -130,37 +140,39 @@ class MultiData():
             timeStart = Utils.parseTime(timeStart)
         if type(timeEnd) is not timedelta:
             timeEnd = Utils.parseTime(timeEnd)
-        return data.loc[(data['Timedelta']>=timeStart) & (data['Timedelta']<timeEnd)]
+        return data.loc[(data['Timedelta'] >= timeStart) & (data['Timedelta'] < timeEnd)]
 
-    def getDataInterval(self, data:object, startFrom:object, interval:str) -> object:
+    def getDataInterval(self, data:object, startFrom:object, interval:str, block:str) -> object:
         """Selects and returns data where timestamp is inside interval defined by its id name.
         
         :param data: data to trim from, usually after getChannelById method.
         :param startFrom: Time value to start first interval from.
         :param interval: id of interval in str format from settings.
+        :param block:
         :return: Trimmed data.
         """
         if type(startFrom) is not timedelta:
             startFrom = Utils.parseTime(startFrom)
 
-        startTime=self.settingsReader.getStartTimeById(interval) + startFrom
-        endTime = self.settingsReader.getEndTimeById(interval) + startFrom
-        return self.getDataBetween(data,startTime,endTime)
+        startTime=self.settingsReader.getStartTimeById(interval, block=block) + startFrom
+        endTime = self.settingsReader.getEndTimeById(interval, block=block) + startFrom
+        return self.getDataBetween(data, startTime, endTime)
 
-    def tagIntervals(self, chData:object, startFrom:object, ignoreEmpty:bool=True) -> DataFrame:
+    def tagIntervals(self, chData:object, startFrom:object, block:str, ignoreEmpty:bool=True) -> DataFrame:
         """Tags given data by intervals, then returns a single dataframe.
         
         :param chData: data to stack intervals from, usually after getChannelById method.
         :param startFrom: zeroTime to start from.
+        :param block: which type of block to tag by.
         :param ignoreEmpty: Whether to cut off the empty and utility intervals.
         :return: DataFrame object ready to group by intervals.
         """
-        data=[]
-        ints=self.settingsReader.getIntervals(ignoreEmpty=ignoreEmpty)
+        data = []
+        ints = self.settingsReader.getIntervals(block=block, ignoreEmpty=ignoreEmpty)
         for interval in ints:
-            intData=self.getDataInterval(chData, startFrom, interval.get('id'))
-            intData.insert(4, 'Interval', interval.get('id'))
-            intData.insert(5, 'Interval duration', interval.get('duration'))
+            intData = self.getDataInterval(chData, startFrom, interval.get('id'), block=block)
+            intData.insert(4, block, interval.get('id'))
+            intData.insert(5, '{0} duration'.format(block), interval.get('duration'))
             data.append(intData)
 
         #case when there is no interval block in settings at all - nothing to tag
@@ -183,7 +195,68 @@ class MultiData():
 
 
 
+    #EYE MOVEMENT methods
+    def getVelocity(self, samplesData:DataFrame, smooth:str, convertToDeg:bool) -> DataFrame:
+        """Method for calculating eye velocity, normally pixels converted to degrees first.
 
+        :param samplesData: dataframe to operate on, containing appropriate eyetracker columns (Time, X, Y, etc.).
+        :param smooth: algo to use, normally passed by command line argument.
+        :param convertToDeg: whether data is passed in raw pixel values or visual angle degrees.
+        :return: data with added *Velocity columns (and smoothed position columns).
+        """
+        metadata = samplesData.metadata
+        self.main.printToOut('WARNING: Dimensions metadata from samples file is considered correct and precise and used in pixel-to-degree conversions.')
+
+        #TODO data column names hard-coded, need refactor to global name dictionary mapper (SMI, Tobii variants)
+        #  mapping goes to multiData metadata property
+        #TODO B side (binocular) variant not implemented (applicable for SMI ETG)
+        for side in ['L', 'R']:
+            for dim in ['X', 'Y']:
+                # smoothing
+                if smooth == 'savgol':
+                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = savgol_filter(samplesData['{0} POR {1} [px]'.format(side, dim)], 5, 2)
+                elif smooth == 'spline':
+                    raise NotImplementedError
+                elif smooth == 'conv':
+                    raise NotImplementedError
+
+                if dim == 'X':
+                    screenDim = metadata['screenWidthPx']
+                    screenRes = metadata['screenHResMm']
+                    multiplier = 1
+                elif dim == 'Y':
+                    screenDim = metadata['screenHeightPx']
+                    screenRes = metadata['screenVResMm']
+                    multiplier = -1
+
+                if not convertToDeg:
+                    self.main.printToOut('ERROR: Raw pixels in data are currently assumed, column names hard-coded.')
+                    raise NotImplementedError
+                else:
+                    #converting to DEGREES
+                    # samplesData['{0}POR{1}Mm'.format(side, dim)]  = multiplier * (samplesData['{0} POR {1} [px]'.format(side, dim)] - screenDim / 2) * screenRes
+                    # samplesData['{0}POR{1}Deg'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}Mm'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
+                    samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] = multiplier * (samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] - screenDim / 2) * screenRes
+                    samplesData['{0}POR{1}DegSmoothed'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
+
+            #VELOCITY calculation
+            screenDistMm = np.hypot(samplesData['{0}PORXMmSmoothed'.format(side)], samplesData['{0}PORYMmSmoothed'.format(side)])
+            screenDistMmPrev = np.hstack((0, screenDistMm[:-1]))
+            screenAngleRad = np.hstack((0, np.diff(np.arctan2(samplesData['{0}PORYMmSmoothed'.format(side)], samplesData['{0}PORXMmSmoothed'.format(side)]), axis=0)))
+            eyeDistMm = np.hypot(screenDistMm, metadata['headDistanceMm'])
+            eyeDistMmPrev = np.hstack((0, eyeDistMm[:-1]))
+            screenScanpathMm = screenDistMm ** 2 + screenDistMmPrev ** 2 - 2 * screenDistMm * screenDistMmPrev * np.cos(screenAngleRad)
+            eyeAngleRad = np.arccos((eyeDistMm ** 2 + eyeDistMmPrev ** 2 - screenScanpathMm ** 2) / (2 * eyeDistMm * eyeDistMmPrev))
+            timelag = np.hstack((1, np.diff(samplesData['Time'])))
+            samplesData['{0}Velocity'.format(side)] = eyeAngleRad / math.pi * 180 / timelag
+
+        return samplesData
+
+
+
+
+
+    #SANITY check methods
     def hasColumn(self, column:str, id:str) -> bool:
         """Checks if multiData contains such column in its gaze channel.
         

@@ -1,4 +1,4 @@
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, timedelta
 
 import pandas
 from pandas import Series
@@ -6,7 +6,8 @@ from pandas import Series
 
 
 
-def guessTimeFormat(val: object)-> str:
+#TIME formatting methods
+def guessTimeFormat(val:object) -> str:
     """Helper method to determine the time strf string.
     
     :param val: Time string to try to parse.
@@ -31,7 +32,7 @@ def guessTimeFormat(val: object)-> str:
 
 
 #FIXME valueerror if format =s.f and s>61
-def parseTime(val: object=0) -> timedelta:
+def parseTime(val:object = 0) -> timedelta:
     """Helper method to convert time strings to datetime objects.
 
     Agnostic of time string format.
@@ -48,23 +49,13 @@ def parseTime(val: object=0) -> timedelta:
     return datetime.combine(date.min,parsed.time())-datetime.min
 
 
-def parseTimeV(data:Series)->Series:
+def parseTimeV(data:Series) -> Series:
     """Vectorized version of parseTime method.
 
     :param data: pandas Series object.
     :return: Same object with values converted to timedelta.
     """
-    if data.name=='Recording timestamp' or data.name=='Begin_Time' or data.name=='Begin Time - ss.msec':
+    if data.name=='Time' or data.name=='Recording timestamp':
         return pandas.to_timedelta(data.astype(float), unit='s')
     else:
-        return pandas.to_datetime(data.astype(str), infer_datetime_format=True)-date.today()
-
-
-
-# def formatTimedelta(delta:timedelta=timedelta(0))->str:
-#     """Convert timedelta objects to str.
-#
-#     :param delta: timedelta object.
-#     :return: str in M:S.f format
-#     """
-#     return (datetime.min+delta).strftime('%M:%S.%f')
+        return pandas.to_datetime(data.astype(str), infer_datetime_format=True) - date.today()

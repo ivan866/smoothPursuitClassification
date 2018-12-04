@@ -1,7 +1,9 @@
 import os, re, math
+import xml.etree.ElementTree as ET
 
 
 import pandas as pd
+
 
 
 
@@ -37,9 +39,9 @@ class DataReader():
         multiData.reset()
         try:
             self.readSMISamples(settingsReader, multiData)
-            #self.readTobiiGaze(settingsReader, multiData)
+            self.readTobiiGaze(settingsReader, multiData)
             if settingsReader.check(full=True) and multiData.check():
-                self.main.printToOut('All valuable data read successfully.', color='success')
+                self.main.printToOut('All valuable data read successfully.', status='ok')
         except:
             self.main.printError()
             raise
@@ -47,6 +49,7 @@ class DataReader():
 
 
 
+    #partially ported from 'readGazeContingency.R' script by ivan866, 23.11.2014
     def readSMISamples(self, settingsReader: object, multiData: object) -> None:
         """Reads SMI samples from .txt files, after IDF Converter (iTools utility package) export.
 
@@ -62,65 +65,127 @@ class DataReader():
                 self.main.printToOut('Parsing {0} file.'.format(fileExt))
 
                 skiprows = self.determineSkiprows(filePath, '##')
-                headers = pd.read_table(filePath,
-                                        sep='\t', header=0, nrows=skiprows,
-                                        encoding='UTF-8')
-                availColumns = [i for i in list(headers.columns) if re.match('Time|Type|Trial|L POR X \[px\]|L POR Y \[px\]|R POR X \[px\]|R POR Y \[px\]|Timing|Latency|L Validity|R Validity|Frame|Aux1', i)]
-                multiData.setNode('availColumns', fileElem.get('id'), availColumns)
-                samplesData = pd.read_table(filePath,
-                                            decimal=".", sep='\t', header=1, skiprows=skiprows, comment='#',
-                                            encoding='UTF-8', usecols=availColumns,
-                                            dtype={'Time':float, 'Type':str, 'Trial':int, 'Latency':int, 'Frame':str})
-                samplesData['Time'] /= 1000000
+                metablock = []
+                with open(filePath, encoding='UTF-8') as f:
+                    for n in range(skiprows+1):
+                        headers = f.readline()
+                        metablock.append(headers)
+                metablock = ''.join(metablock)
 
-                #TRIGGER lines are not implemented
+                #tested on SMI RED-m-HP data only
+                availColumns = [i for i in headers.strip().split('\t') if re.match('Time|Type|Trial|L POR X \[px\]|L POR Y \[px\]|R POR X \[px\]|R POR Y \[px\]|Timing|Latency|L Validity|R Validity|Frame|Trigger|Aux1', i)]
+                multiData.setNode('availColumns', fileElem.get('id'), availColumns)
+
+                samplesData = pd.read_table(filePath,
+                                            decimal=".", sep='\t', skiprows=skiprows, header=0, usecols=availColumns, encoding='UTF-8',
+                                            dtype={'Time':float, 'Type':str, 'Trial':int, 'Frame':str})
+                samplesData['Time'] /= 1000000
+                #first line can be MSG type, but this is OK, we count from it anyway
+                zeroTime = samplesData.iloc[0]['Time']
+                maxTime = samplesData.iloc[-1]['Time']
+                samplesData['Time'] -= zeroTime
+                samplesData = samplesData.loc[samplesData['Type']=='SMP']
+
 
                 #MSG lines
                 messagesData = pd.read_table(filePath,
-                                            decimal=".", sep='\t', header=1, skiprows=skiprows,
-                                            encoding='UTF-8', usecols=[0,1,2,3],
-                                            dtype={'Time': float, 'Type': str, 'Trial': int})
+                                             decimal=".", sep='\t', skiprows=skiprows, header=0, usecols=[0,1,2,3], encoding='UTF-8',
+                                             dtype={'Time': float, 'Type': str, 'Trial': int})
                 messagesData['Time'] /= 1000000
-                messagesData = messagesData.filter(like='MSG', axis=0)
-                messagesData.rename({3: 'Text'}, axis='columns', inplace=True)
-                messagesData['Text'] = messagesData['Text'].applymap(lambda x: re.sub('# Message: (.*)', '\\1', str(x)))
-
-                #TODO TAGGING data stream, may slightly conflict with INTERVALS block in settings
-                #for msg in messagesData:
+                messagesData['Time'] -= zeroTime
+                messagesData = messagesData.loc[messagesData['Type'] == 'MSG']
+                messagesData.rename(columns={messagesData.columns[3]: "Text"}, inplace=True)
+                messagesData['Text'] = messagesData['Text'].apply(lambda x: re.sub('# Message: (.*)', '\\1', str(x)))
 
 
-                # get metadata
-                sampleRate = re.search('Sample Rate:\t(\d+)$', headers).groups()[0]
-                screenSizePx = re.search('Calibration Area:\t(\d+)\t(\d+)$', headers).groups()
-                screenWidthPx, screenHeightPx = screenSizePx[0], screenSizePx[1]
-                screenSizeMm = re.search('Stimulus Dimension [mm]:\t(\d+)\t(\d+)$', headers).groups()
-                screenWidthMm, screenHeightMm = screenSizeMm[0], screenSizeMm[1]
-                headDistanceMm = re.search('Head Distance [mm]:\t(\d+)$', headers).groups()[0]
+                #MESSAGES block
+                #messages are (conventionally) assumed to have duration
+                #last message duration is assumed to be up to the end of the record
+                #zeroTime special interval added even if it itself equals 0
+                msgNum = 0
+                zeroTimeAdded  = False
+                for index, row in messagesData.iterrows():
+                    if not zeroTimeAdded:
+                        messageTag = ET.Element('message')
+                        messageTag.set('id', '_zeroTime')
+                        messageTag.set('text', '')
+                        duration = messagesData.iloc[0]['Time']
+                        messageTag.set('duration', str(duration))
+                        settingsReader.settings.append(messageTag)
+                        zeroTimeAdded = True
+                    msgNum = msgNum + 1
+                    messageTag = ET.Element('message')
+                    messageTag.set('id', str(msgNum))
+                    #messageTag.set('trial', row['Trial'])
+                    messageTag.set('text', row['Text'])
+                    if index < len(messagesData):
+                        duration = messagesData.iloc[index+1]['Time'] - row['Time']
+                    else:
+                        duration = maxTime - row['Time']
+                    messageTag.set('duration', str(duration))
+                    settingsReader.settings.append(messageTag)
+
+                #TRIALS block
+                #trials are assumed to have no gaps between them
+                trialNum = 0
+                zeroTimeAdded2 = False
+                trialData = pd.DataFrame([messagesData.loc[index] for index,row in messagesData.iterrows() if 'FixPoint' in row['Text']])
+                for index, row in trialData.iterrows():
+                    if not zeroTimeAdded2:
+                        trialTag = ET.Element('trial')
+                        trialTag.set('id', '_zeroTime')
+                        trialTag.set('text', '')
+                        duration = messagesData.iloc[0]['Time']
+                        trialTag.set('duration', str(duration))
+                        settingsReader.settings.append(trialTag)
+                        zeroTimeAdded2 = True
+                    trialNum = trialNum + 1
+                    trialTag = ET.Element('trial')
+                    trialTag.set('id', str(trialNum))
+                    trialTag.set('text', row['Text'])
+                    if index < len(trialTag):
+                        duration = trialTag.iloc[index + 1]['Time'] - row['Time']
+                    else:
+                        duration = maxTime - row['Time']
+                    trialTag.set('duration', str(duration))
+                    settingsReader.settings.append(trialTag)
+
+                #TRIGGERS block (applicable for SMI HiSpeed)
+                #TODO not implemented
+
+
+                #get metadata
+                #values assumed to be integers
+                sampleRate = int(re.search('Sample Rate:\t(\d+)', metablock).groups()[0])
+                screenSizePx = re.search('Calibration Area:\t(\d+)\t(\d+)', metablock).groups()
+                screenWidthPx, screenHeightPx = int(screenSizePx[0]), int(screenSizePx[1])
+                screenSizeMm = re.search('Stimulus Dimension \[mm\]:\t(\d+)\t(\d+)', metablock).groups()
+                screenWidthMm, screenHeightMm = int(screenSizeMm[0]), int(screenSizeMm[1])
+                headDistanceMm = int(re.search('Head Distance \[mm\]:\t(\d+)', metablock).groups()[0])
                 #degrees, assuming the eyesight axis is centered around the screen
                 screenWidthDeg = math.atan(screenWidthMm / 2 / headDistanceMm) * 180 / math.pi * 2
                 screenHeightDeg = math.atan(screenHeightMm / 2 / headDistanceMm) * 180 / math.pi * 2
+                screenHResMm, screenVResMm = screenWidthMm / screenWidthPx, screenHeightMm / screenHeightPx
                 metadata = {'sampleRate': sampleRate,
                             'screenWidthPx': screenWidthPx, 'screenHeightPx': screenHeightPx,
                             'screenWidthMm': screenWidthMm, 'screenHeightMm': screenHeightMm,
                             'screenWidthDeg': screenWidthDeg, 'screenHeightDeg': screenHeightDeg,
+                            'screenHResMm': screenHResMm, 'screenVResMm': screenVResMm,
                             'headDistanceMm': headDistanceMm}
                 #experiment (record) metadata is in special property, not a separate data channel
                 samplesData.metadata = metadata
 
-                #translate to degrees! - for velocity calculation
-
-
-
             elif fileExt.lower() == '.idf':
-                self.main.printToOut('ERROR: cannot parse .idf files. Convert them to .txt first.')
+                self.main.printToOut('ERROR: Cannot parse .idf files. Convert them to .txt first.')
                 raise NotImplementedError
             elif fileExt.lower() == '.csv':
                 self.main.printToOut('Parsing {0} file.'.format(fileExt))
-                gazeData = pd.read_csv(filePath, sep='\t')
+                samplesData = pd.read_csv(filePath, sep='\t')
             else:
                 self.main.printToOut('Unknown file format.')
 
             multiData.setNode('samples', fileElem.get('id'), samplesData)
+            multiData.setNode('messages', fileElem.get('id'), messagesData)
 
 
 
@@ -134,8 +199,6 @@ class DataReader():
         :param multiData: same
         :return:
         """
-        recordId = settingsReader.getRecordId()
-
         for fileElem in settingsReader.genTypeFile('gaze'):
             filePath = settingsReader.getPathAttrById('gaze', fileElem.get('id'), absolute=True)
             fileExt = os.path.splitext(filePath)[1]
@@ -146,6 +209,7 @@ class DataReader():
                 headers = pd.read_table(filePath, nrows=1, encoding='UTF-16')
                 availColumns = [i for i in list(headers.columns) if re.match('Recording timestamp|Gaze point|Gaze 3D position|Gaze direction|Pupil diameter|Eye movement type|Gaze event duration|Fixation point|Gyro|Accelerometer',i)]
                 multiData.setNode('availColumns', fileElem.get('id'), availColumns)
+
                 gazeData = pd.read_table(filePath, decimal=",", encoding='UTF-16', usecols=availColumns)
                 # переводим в секунды
                 gazeData['Recording timestamp'] /= 1000
@@ -180,7 +244,8 @@ class DataReader():
 
 
 
-    def determineSkiprows(self, file: str, commentStr: str) -> int:
+    #UTILS methods
+    def determineSkiprows(self, file:str, commentStr:str) -> int:
         """
 
         :param file:
