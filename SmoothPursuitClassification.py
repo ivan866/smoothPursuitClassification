@@ -119,7 +119,7 @@ def main():
     settingsFileGroup.add_argument('-s', '--settings-file', type=str, help='Path to settings XML file.')
 
     jobGroup = parser.add_argument_group('job', 'Parameters of job running.')
-    jobGroup.add_argument('--smooth', type=str, choices=['savgol', 'spline', 'conv'], default='savgol', help='Filter name for gaze data smoothing.')
+    jobGroup.add_argument('--smooth', type=str, choices=['savgol', 'spline', 'conv'], default='spline', help='Filter name for gaze data smoothing.')
     jobGroup.add_argument('--algo', type=str, choices=['ibdt', 'ivvt', 'ivdt', 'ivt', 'idt'], default='ivt', help='Algorithm name for detecting IRRELEVANT eye movement types.')
     jobGroup.add_argument('--classifier', type=str, choices=['blstm', 'fasterrcnn', 'cnn', 'ssd', 'irf'], default='fasterrcnn', help='Deep-learning neural network type.')
     jobGroup.add_argument('--backend', type=str, choices=['keras', 'tf', 'neon', 'sklearn'], default='keras', help='Machine learning library to use as a backend.')
@@ -138,6 +138,7 @@ def main():
         for (channel, id) in spc.multiData.genChannelIds(channel='samples'):
             samplesData = spc.multiData.getChannelAndTag(channel, id, block='trial', ignoreEmpty=False)
             velocityData = spc.multiData.getVelocity(samplesData=samplesData, smooth=args.smooth, convertToDeg=True)
+            spc.multiData.setNode(channel, id, velocityData)
 
             velocityData.loc[:, ('LVelocity', 'RVelocity')]
 

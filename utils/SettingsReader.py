@@ -1,5 +1,6 @@
 import os, hashlib, xml
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 
 from tkinter import filedialog
 
@@ -343,7 +344,10 @@ class SettingsReader:
         :return: 
         """
         #self.main.logger.debug('writing settings...')
-        self.settingsTree.write(saveDir + '/' + os.path.basename(self.settingsFile))
+        #self.settingsTree.write(saveDir + '/' + os.path.basename(self.settingsFile))
+        #TODO
+        bs = BeautifulSoup(self.settingsTree)
+        print(bs.prettify())
 
     def md5(self, fname:str)->str:
         """Calculates and returns MD5 hash checksum of a file.

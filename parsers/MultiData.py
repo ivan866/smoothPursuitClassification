@@ -179,17 +179,19 @@ class MultiData():
         if len(ints)==0:
             return chData
         if len(ints)==1:
-            data=data[0]
+            data = data[0]
         else:
-            data=data[0].append(data[1:])
+            data = data[0].append(data[1:])
 
 
         zeroBased=[]
-        zeroTime=data.iloc[0,0]
-        for timestamp in data.iloc[:,0]:
-            zeroBased.append(timestamp-zeroTime)
+        zeroTime = data.iloc[0, 0]
+        for timestamp in data.iloc[:, 0]:
+            zeroBased.append(timestamp - zeroTime)
         data.insert(1, 'TimestampZeroBased', zeroBased)
 
+        #inheriting metadata
+        data.metadata = chData.metadata
         return data
 
 
@@ -204,17 +206,28 @@ class MultiData():
         :param convertToDeg: whether data is passed in raw pixel values or visual angle degrees.
         :return: data with added *Velocity columns (and smoothed position columns).
         """
-        metadata = samplesData.metadata
-        self.main.printToOut('WARNING: Dimensions metadata from samples file is considered correct and precise and used in pixel-to-degree conversions.')
-
         #TODO data column names hard-coded, need refactor to global name dictionary mapper (SMI, Tobii variants)
         #  mapping goes to multiData metadata property
         #TODO B side (binocular) variant not implemented (applicable for SMI ETG)
-        for side in ['L', 'R']:
+        if all(samplesData['L POR X [px]'] == samplesData['R POR X [px]']) and all(samplesData['L POR Y [px]'] == samplesData['R POR Y [px]']):
+            self.main.printToOut('Left and right channels detected equivalent. Working with left channel only.')
+            samplesData.metadata['equivalent'] = True
+
+        metadata = samplesData.metadata
+        self.main.printToOut('WARNING: Dimensions metadata from samples file is considered correct and precise, and used in pixel-to-degree conversions.')
+        self.main.printToOut('Now calculating velocity, be patient.')
+
+        if metadata['equivalent']:
+            sides = ['L']
+        else:
+            sides = ['L', 'R']
+
+        #TODO skipping one channel if same
+        for side in sides:
             for dim in ['X', 'Y']:
                 # smoothing
                 if smooth == 'savgol':
-                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = savgol_filter(samplesData['{0} POR {1} [px]'.format(side, dim)], 5, 2)
+                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = savgol_filter(samplesData['{0} POR {1} [px]'.format(side, dim)], 15, 2)
                 elif smooth == 'spline':
                     raise NotImplementedError
                 elif smooth == 'conv':
@@ -234,8 +247,9 @@ class MultiData():
                     raise NotImplementedError
                 else:
                     #converting to DEGREES
-                    # samplesData['{0}POR{1}Mm'.format(side, dim)]  = multiplier * (samplesData['{0} POR {1} [px]'.format(side, dim)] - screenDim / 2) * screenRes
-                    # samplesData['{0}POR{1}Deg'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}Mm'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
+                    #TODO factor out to Utils
+                    samplesData['{0}POR{1}Mm'.format(side, dim)]  = multiplier * (samplesData['{0} POR {1} [px]'.format(side, dim)] - screenDim / 2) * screenRes
+                    samplesData['{0}POR{1}Deg'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}Mm'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
                     samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] = multiplier * (samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] - screenDim / 2) * screenRes
                     samplesData['{0}POR{1}DegSmoothed'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
 
@@ -250,6 +264,7 @@ class MultiData():
             timelag = np.hstack((1, np.diff(samplesData['Time'])))
             samplesData['{0}Velocity'.format(side)] = eyeAngleRad / math.pi * 180 / timelag
 
+        self.main.printToOut('Done.', status='ok')
         return samplesData
 
 
