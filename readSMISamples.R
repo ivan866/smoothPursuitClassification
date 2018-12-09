@@ -47,34 +47,55 @@ rdataFiles <- gsub(".txt", ".RData", samplesFiles)
 
 
 
+#----
+require(geosphere)
+require(SphericalCubature)
+#расчет угла (между сэмплами) по теореме косинусов
+getSeparation <- function(x1, y1, x2, y2, z, mode) {
+  if (mode=='fromCartesian') {
+    cartesian1 <- rbind(x1,y1,z)
+    cartesian2 <- rbind(x2,y2,z)
+    polar1 <- rect2polar(cartesian1)
+    polar2 <- rect2polar(cartesian2)
+  } else if (mode=='fromPolar') {
+    polar1=list(phi=(rbind(x1,y1)+90)/180*pi)
+    polar2=list(phi=(rbind(x2,y2)+90)/180*pi)
+  }
+  
+  sphericalLength <- distCosine(p1=(t(polar1$phi[1:2,])/pi*180)-90, p2=(t(polar2$phi[1:2,])/pi*180)-90, r=z)
+  
+  circumcision <- 2*pi*z
+  separation <- (sphericalLength/circumcision) * 360
+  
+  return(separation)
+}
+
+
+
 
 #----
 #metadata
-screenWidthPx  <- 1280
-screenHeightPx <- 1024
-screenWidthMm  <- 376
-screenHeightMm <- 301
-headDistanceMm <- 635
-frameRate      <- 120
-
-screenWidthDeg  <- atan(screenWidthMm/2/headDistanceMm) *180/pi*2
-screenHeightDeg <- atan(screenHeightMm/2/headDistanceMm)*180/pi*2
+screenWidthPx   <- 1280
+screenHeightPx  <- 1024
+screenWidthMm   <- 376
+screenHeightMm  <- 301
+screenWidthDeg  <- getSeparation(-screenWidthMm/2, 0, screenWidthMm/2, 0, headDistanceMm, 'fromCartesian')
+screenHeightDeg <- getSeparation(-screenHeightMm/2, 0, screenHeightMm/2, 0, headDistanceMm, 'fromCartesian')
+headDistanceMm  <- 635
+frameRate       <- 120
 screenHResMm    <- screenWidthMm/screenWidthPx
 screenVResMm    <- screenHeightMm/screenHeightPx
+fixDotPattern   <- "Fix"
+stimPattern     <- ".avi"
 
 
 
 
 
 #----
-fixDotPattern <- "Fix"
-stimPattern   <- ".avi"
-
 #data reader function
 require(data.table)
 require(signal)
-require(geosphere)
-require(SphericalCubature)
 readSamples <- function() {
   samplesHeader <- readLines(samplesFile,50)
   samplesFileSkip<-grep("\\d+\\t[SMP|MSG]",samplesHeader)[1]-2
@@ -103,6 +124,8 @@ readSamples <- function() {
   messages[,Text:=gsub("# Message: ","",Text)]
   messages[,Time:=(Time-zeroTime)/10^6]
   messages<<-as.data.frame(messages)
+  
+  
   #----
   #
   trialMessages<-messages[grep(fixDotPattern,messages[,"Text"]),]
@@ -114,73 +137,79 @@ readSamples <- function() {
     smpIndices[msgInt]<<-ind
   }
   smpIndices<<-c(smpIndices,nrow(samples))
+  
+  
+  
+  
   #----
   #читаем только 1 канал, если они одинаковые (RED-m-HP)
-  for (chLetter in c("L","R")) {
+  for (chLetter in c('L','R')) {
     if (length(grep(paste0(chLetter,"PORXpx"),colnames(samples)))) {
       channel<<-chLetter
-      samples[,paste0(channel,"PORXMm"):=  (samples[,paste0(channel,"PORXpx"),with=FALSE]-screenWidthPx/2)*screenHResMm]
-      samples[,paste0(channel,"PORYMm"):= -(samples[,paste0(channel,"PORYpx"),with=FALSE]-screenHeightPx/2)*screenVResMm]
-      samples[,paste0(channel,"PORXDeg"):=atan(samples[,paste0(channel,"PORXMm"),with=FALSE]/headDistanceMm)/pi*180]
-      samples[,paste0(channel,"PORYDeg"):=atan(samples[,paste0(channel,"PORYMm"),with=FALSE]/headDistanceMm)/pi*180]
+      samples[,paste0(channel,"PORXMm")  :=  (samples[,paste0(channel,"PORXpx"),with=FALSE]-screenWidthPx/2)*screenHResMm]
+      samples[,paste0(channel,"PORYMm")  := -(samples[,paste0(channel,"PORYpx"),with=FALSE]-screenHeightPx/2)*screenVResMm]
+      xs <- as.data.frame(samples[,paste0(channel,"PORXMm"),with=FALSE])[,1]
+      ys <- as.data.frame(samples[,paste0(channel,"PORYMm"),with=FALSE])[,1]
+      samples[,paste0(channel,"PORXDeg") := sign(xs) * getSeparation(xs, 0, 0, 0, headDistanceMm, 'fromCartesian') ]
+      samples[,paste0(channel,"PORYDeg") := sign(ys) * getSeparation(0, ys, 0, 0, headDistanceMm, 'fromCartesian') ]
+      
+    
       #
       lastIndex<-1
-      print("Smoothing...")
+      print(paste0('Smoothing ', channel, '...'))
       #using SPLINE, SGOLAY
       for (smpInt in seq_along(smpIndices)){
         index<-smpIndices[smpInt]
-        samples[lastIndex:index, paste0(channel,"SplinePORXpx") := smooth.spline(samples[lastIndex:index, paste0(channel,"PORXpx"),with=FALSE], spar=.8,all.knots=TRUE,keep.data=FALSE)$y]
-        samples[lastIndex:index, paste0(channel,"SplinePORYpx") := smooth.spline(samples[lastIndex:index, paste0(channel,"PORYpx"),with=FALSE], spar=.8,all.knots=TRUE,keep.data=FALSE)$y]
+        samples[lastIndex:index, paste0(channel,"SplinePORXpx") := smooth.spline(samples[lastIndex:index, paste0(channel,"PORXpx"),with=FALSE], spar=.65,all.knots=TRUE,keep.data=FALSE)$y]
+        samples[lastIndex:index, paste0(channel,"SplinePORYpx") := smooth.spline(samples[lastIndex:index, paste0(channel,"PORYpx"),with=FALSE], spar=.65,all.knots=TRUE,keep.data=FALSE)$y]
         #samples[lastIndex:index, paste0(channel,"SgolayPORXpx") := sgolayfilt(samples[lastIndex:index, paste0(channel,"PORXpx"),with=FALSE][[1]],2,15)]
         #samples[lastIndex:index, paste0(channel,"SgolayPORYpx") := sgolayfilt(samples[lastIndex:index, paste0(channel,"PORYpx"),with=FALSE][[1]],2,15)]
         lastIndex <- index+1
       }
-      samples[,paste0(channel,"SplinePORXMm"):=  (samples[,paste0(channel,"SplinePORXpx"),with=FALSE]-screenWidthPx/2)*screenHResMm]
-      samples[,paste0(channel,"SplinePORYMm"):= -(samples[,paste0(channel,"SplinePORYpx"),with=FALSE]-screenHeightPx/2)*screenVResMm]
-      samples[,paste0(channel,"SplinePORXDeg"):=atan(samples[,paste0(channel,"SplinePORXMm"),with=FALSE]/headDistanceMm)/pi*180]
-      samples[,paste0(channel,"SplinePORYDeg"):=atan(samples[,paste0(channel,"SplinePORYMm"),with=FALSE]/headDistanceMm)/pi*180]
+      
+      samples[,paste0(channel,"SplinePORXMm")  :=  (samples[,paste0(channel,"SplinePORXpx"),with=FALSE]-screenWidthPx/2)*screenHResMm]
+      samples[,paste0(channel,"SplinePORYMm")  := -(samples[,paste0(channel,"SplinePORYpx"),with=FALSE]-screenHeightPx/2)*screenVResMm]
+      xs <- as.data.frame(samples[,paste0(channel,"SplinePORXMm"),with=FALSE])[,1]
+      ys <- as.data.frame(samples[,paste0(channel,"SplinePORYMm"),with=FALSE])[,1]
+      samples[,paste0(channel,"SplinePORXDeg") := sign(xs) * getSeparation(xs, 0, 0, 0, headDistanceMm, 'fromCartesian') ]
+      samples[,paste0(channel,"SplinePORYDeg") := sign(ys) * getSeparation(0, ys, 0, 0, headDistanceMm, 'fromCartesian') ]
+      
+      #
       #samples[,paste0(channel,"SgolayPORXMm"):=  (samples[,paste0(channel,"SgolayPORXpx"),with=FALSE]-screenWidthPx/2)*screenHResMm]
       #samples[,paste0(channel,"SgolayPORYMm"):= -(samples[,paste0(channel,"SgolayPORYpx"),with=FALSE]-screenHeightPx/2)*screenVResMm]
       #samples[,paste0(channel,"SgolayPORXDeg"):=atan(samples[,paste0(channel,"SgolayPORXMm"),with=FALSE]/headDistanceMm)/pi*180]
       #samples[,paste0(channel,"SgolayPORYDeg"):=atan(samples[,paste0(channel,"SgolayPORYMm"),with=FALSE]/headDistanceMm)/pi*180]
+      
+      
+      
+      #----
       #VELOCITY
       #2018.12.05 посчитаем скорость от несглаженного сигнала
-      veloTmp <- data.table(tmp=rep(0,nrow(samples)))
-      veloTmp[,screenDistMm     := sqrt( samples[,paste0(channel,"PORXMm"),with=FALSE]^2 + samples[,paste0(channel,"PORYMm"),with=FALSE]^2 )]
-      veloTmp[,screenDistMmPrev := c(0,screenDistMm[-length(screenDistMm)])]
-      veloTmp[,screenAngleRad   := c( 0,diff( atan2(samples[,paste0(channel,"PORYMm"),with=FALSE][[1]], samples[,paste0(channel,"PORXMm"),with=FALSE][[1]]) ) )]
-      veloTmp[,eyeDistMm        := sqrt( screenDistMm^2 + headDistanceMm^2)]
-      veloTmp[,eyeDistMmPrev    := c(0,eyeDistMm[-length(eyeDistMm)])]
-      veloTmp[,screenScanpathMm := screenDistMm^2 + screenDistMmPrev^2 - 2*screenDistMm*screenDistMmPrev * cos(screenAngleRad)]
-      veloTmp[,eyeAngleRad      := acos(pmax(pmin( (eyeDistMm^2 + eyeDistMmPrev^2 - screenScanpathMm^2) / (2*eyeDistMm*eyeDistMmPrev), 1.0),-1.0) )]
-      veloTmp[,timelag          := c(1,diff(samples[,Time]))]
-      samples[,paste0(channel,"Velocity") := veloTmp[,eyeAngleRad]/pi*180/veloTmp[,timelag]]
+      veloTmp <- data.table(tmp=rep(0, nrow(samples)))
+      veloTmp[,separation       := c(1, getSeparation(as.data.frame(samples[-1,paste0(channel,"PORXDeg"),with=FALSE])[,1], as.data.frame(samples[-1,paste0(channel,"PORYDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"PORXDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"PORYDeg"),with=FALSE])[,1], headDistanceMm, 'fromPolar')) ]
+      veloTmp[,timelag          := c(1, diff(samples[,Time]))]
+      samples[,paste0(channel,"Velocity") := veloTmp[,separation] / veloTmp[,timelag] ]
+      
+      
       #от сглаженного
-      veloTmp<-data.table(tmp=rep(0,nrow(samples)))
-      veloTmp[,screenDistMm:=sqrt( samples[,paste0(channel,"SplinePORXMm"),with=FALSE]^2 + samples[,paste0(channel,"SplinePORYMm"),with=FALSE]^2 )]
-      veloTmp[,screenDistMmPrev:=c(0,screenDistMm[-length(screenDistMm)])]
-      veloTmp[,screenAngleRad:=c( 0,diff( atan2(samples[,paste0(channel,"SplinePORYMm"),with=FALSE][[1]], samples[,paste0(channel,"SplinePORXMm"),with=FALSE][[1]]) ) )]
-      veloTmp[,eyeDistMm:=sqrt( screenDistMm^2 + headDistanceMm^2)]
-      veloTmp[,eyeDistMmPrev:=c(0,eyeDistMm[-length(eyeDistMm)])]
-      veloTmp[,screenScanpathMm:=screenDistMm^2 + screenDistMmPrev^2 - 2*screenDistMm*screenDistMmPrev * cos(screenAngleRad)]
-      veloTmp[,eyeAngleRad:=acos(pmax(pmin( (eyeDistMm^2 + eyeDistMmPrev^2 - screenScanpathMm^2) / (2*eyeDistMm*eyeDistMmPrev), 1.0),-1.0) )]
-      veloTmp[,timelag:=c(1,diff(samples[,Time]))]
-      samples[,paste0(channel,"SplineVelocity"):=veloTmp[,eyeAngleRad]/pi*180/veloTmp[,timelag]]
+      veloTmp <- data.table(tmp=rep(0, nrow(samples)))
+      veloTmp[,separation       := c(1, getSeparation(as.data.frame(samples[-1,paste0(channel,"SplinePORXDeg"),with=FALSE])[,1], as.data.frame(samples[-1,paste0(channel,"SplinePORYDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"SplinePORXDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"SplinePORYDeg"),with=FALSE])[,1], headDistanceMm, 'fromPolar')) ]
+      veloTmp[,timelag          := c(1, diff(samples[,Time]))]
+      samples[,paste0(channel,"SplineVelocity") := veloTmp[,separation] / veloTmp[,timelag] ]
+      
       #
-      #veloTmp<-data.table(tmp=rep(0,nrow(samples)))
-      #veloTmp[,screenDistMm:=sqrt( samples[,paste0(channel,"SgolayPORXMm"),with=FALSE]^2 + samples[,paste0(channel,"SgolayPORYMm"),with=FALSE]^2 )]
-      #veloTmp[,screenDistMmPrev:=c(0,screenDistMm[-length(screenDistMm)])]
-      #veloTmp[,screenAngleRad:=c( 0,diff( atan2(samples[,paste0(channel,"SgolayPORYMm"),with=FALSE][[1]], samples[,paste0(channel,"SgolayPORXMm"),with=FALSE][[1]]) ) )]
-      #veloTmp[,eyeDistMm:=sqrt( screenDistMm^2 + headDistanceMm^2)]
-      #veloTmp[,eyeDistMmPrev:=c(0,eyeDistMm[-length(eyeDistMm)])]
-      #veloTmp[,screenScanpathMm:=screenDistMm^2 + screenDistMmPrev^2 - 2*screenDistMm*screenDistMmPrev * cos(screenAngleRad)]
-      #veloTmp[,eyeAngleRad:=acos(pmax(pmin( (eyeDistMm^2 + eyeDistMmPrev^2 - screenScanpathMm^2) / (2*eyeDistMm*eyeDistMmPrev), 1.0),-1.0) )]
-      #veloTmp[,timelag:=c(1,diff(samples[,Time]))]
-      #samples[,paste0(channel,"SgolayVelocity"):=veloTmp[,eyeAngleRad]/pi*180/veloTmp[,timelag]]
+      #veloTmp <- data.table(tmp=rep(0, nrow(samples)))
+      #veloTmp[,separation       := c(1, getSeparation(as.data.frame(samples[-1,paste0(channel,"SgolayPORXDeg"),with=FALSE])[,1], as.data.frame(samples[-1,paste0(channel,"SgolayPORYDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"SgolayPORXDeg"),with=FALSE])[,1], as.data.frame(samples[-nrow(samples),paste0(channel,"SgolayPORYDeg"),with=FALSE])[,1], headDistanceMm, 'fromPolar')) ]
+      #veloTmp[,timelag          := c(1, diff(samples[,Time]))]
+      #samples[,paste0(channel,"SgolayVelocity") := veloTmp[,separation] / veloTmp[,timelag] ]
     }
   }
+  
+  
   samples[,c("LRawXpx","Latency","Frame"):=NULL]
 }
+
+
 
 
 
@@ -210,10 +239,10 @@ spatialPlot <- function() {
   #
   #plotSamplesSetNanned <<- plotSamplesSet
   if (length(xNans)) {
-    plotSamplesSet[xNans, c(paste0(channel,"PORXDeg"), paste0(channel,"Velocity"), paste0(channel,"SplineVelocity"), paste0(channel,"SgolayVelocity"))] <<- NaN
+    plotSamplesSet[xNans, c(paste0(channel,"PORXDeg"), paste0(channel,"Velocity"), paste0(channel,"SplineVelocity"))] <<- NaN
   }
   if (length(yNans)) {
-    plotSamplesSet[yNans, c(paste0(channel,"PORYDeg"), paste0(channel,"Velocity"), paste0(channel,"SplineVelocity"), paste0(channel,"SgolayVelocity"))] <<- NaN
+    plotSamplesSet[yNans, c(paste0(channel,"PORYDeg"), paste0(channel,"Velocity"), paste0(channel,"SplineVelocity"))] <<- NaN
   }
   #validSmpL <<- plotSamplesSet[,paste0(channel,"PORXDeg")]!=-screenWidthDeg/2 & plotSamplesSet[,paste0(channel,"PORYDeg")]!=screenHeightDeg/2
   #plotSamplesSet <<- plotSamplesSet[validSmpL,]
@@ -223,6 +252,8 @@ spatialPlot <- function() {
   #points(tail(plotSamplesSet[,paste0(channel,"SmoothPORXDeg")],1),tail(plotSamplesSet[,paste0(channel,"SmoothPORYDeg")],1),pch=3)
   plotEvents("messages", "spatial")
 }
+
+
 
 
 plotSamples <- function() {
@@ -244,10 +275,12 @@ plotSamples <- function() {
 }
 
 
+
+
 plotVelocity <- function() {
   plot(0,type="n",
        xlab="Time (s)",ylab="Velocity (°/s)",
-       xlim=c(plotStartTime,plotStartTime+plotWidthS),ylim=c(-50,1000))
+       xlim=c(plotStartTime,plotStartTime+plotWidthS),ylim=c(0,1000))
   grid()
   #empirical saccade median and maximum limits
   abline(h=400, lty='dashed', col='lightgrey')
@@ -263,26 +296,31 @@ plotVelocity <- function() {
 }
 
 
-plotEvents <- function(type,mode) {
+
+
+
+plotEvents <- function(type, mode) {
   channelEvents<-get(type)
-  plotEvents<-channelEvents[channelEvents$Time>=plotStartTime & channelEvents$Time<plotStartTime+plotWidthS,]
+  plotEvents <- channelEvents[channelEvents$Time>=plotStartTime & channelEvents$Time<plotStartTime+plotWidthS,]
   #
-  plotEventsLength<-length(plotEvents[,1])
+  plotEventsLength <- length(plotEvents[,1])
   if (plotEventsLength!=0) {
     if (type=="messages") {
       if (mode=="full") {
-        abline(v=plotEvents$Time,col="skyblue",lty="dashed",lwd=lineWidth*2)
-        points(plotEvents$Time,rep(-20,plotEventsLength),col="skyblue",bg="skyblue",pch=2)
+        abline(v=plotEvents$Time, col="skyblue",lty="dashed",lwd=lineWidth*2)
+        points(plotEvents$Time, rep(-20,plotEventsLength),col="skyblue",bg="skyblue",pch=2)
       } else if (mode=="spatial") {
         for (messageInt in 1:plotEventsLength) {
-          plotMessage<-plotEvents[messageInt,]
-          messageSample<-plotSamplesSet[tail(which(plotSamplesSet[,"Time"]<=plotMessage[,"Time"]),1),]
-          points(messageSample[,paste0(channel,"PORXDeg")],messageSample[,paste0(channel,"PORYDeg")],col="skyblue",bg="skyblue",pch=2)
+          plotMessage   <- plotEvents[messageInt,]
+          messageSample <- plotSamplesSet[tail(which(plotSamplesSet[,"Time"] <= plotMessage[,"Time"]),1),]
+          points(messageSample[,paste0(channel,"PORXDeg")],messageSample[,paste0(channel,"PORYDeg")], col="skyblue",bg="skyblue",pch=2)
         }
       }
     }
   }
 }
+
+
 
 
 tempoPlot <- function() {
@@ -292,6 +330,9 @@ tempoPlot <- function() {
   par(opar)
   #dev.copy2pdf(file=paste0(workPath[dirInt],"img/tempo_",plotStartTime,".pdf"),out.type="cairo")
 }
+
+
+
 
 
 imgNum <<- 0
@@ -376,6 +417,9 @@ length(endMessagesInts)==nrow(stimMessages)
 
 
 
+
+
+
 #----
 #now PLOTTING
 require('Cairo')
@@ -389,12 +433,13 @@ plotWidthS<- 50/frameRate
 #сколько всего прорисовывать блоков для combiPlot
 cascadeWidthS <- 65.0
 
-
 #----
 #channel <- "R"
 recordData<-data.frame(fixDotInt=1:nrow(fixDotMessages))
 recordData[,"participantId"]<-rep(participantIds[dirInt],nrow(fixDotMessages))
 plotData  <- recordData
+
+
 
 
 for (plotMessageInt in 1:nrow(plotData)) {
