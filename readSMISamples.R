@@ -13,8 +13,8 @@ participantIds <- c(
    "3_ex-CSB_2015_06_27_1306",
   "03_ex-CSB_2015_07_02_1258",
    "4_ex-CSB_2015_06_27_1336",
-  "5_ex-CSB_2015_06_27_1406",
-   "05_ex-CSB_2015_07_02_1323",
+   "5_ex-CSB_2015_06_27_1406",
+  "05_ex-CSB_2015_07_02_1323",
   "06_ex-CSB_2015_07_02_1346",
    "7_ex-CSB_2015_06_27_1429",
   "07_ex-CSB_2015_07_02_1415",
@@ -75,14 +75,14 @@ getSeparation <- function(x1, y1, x2, y2, z, mode) {
 
 #----
 #metadata
+frameRate       <- 120
+headDistanceMm  <- 635
 screenWidthPx   <- 1280
 screenHeightPx  <- 1024
 screenWidthMm   <- 376
 screenHeightMm  <- 301
 screenWidthDeg  <- getSeparation(-screenWidthMm/2, 0, screenWidthMm/2, 0, headDistanceMm, 'fromCartesian')
 screenHeightDeg <- getSeparation(-screenHeightMm/2, 0, screenHeightMm/2, 0, headDistanceMm, 'fromCartesian')
-headDistanceMm  <- 635
-frameRate       <- 120
 screenHResMm    <- screenWidthMm/screenWidthPx
 screenVResMm    <- screenHeightMm/screenHeightPx
 fixDotPattern   <- "Fix"
@@ -385,7 +385,7 @@ combiPlot <- function(mode='cascade') {
 
 #----
 #READING data
-dirInt <- 31
+dirInt <- 15
 print(paste0("Record ",dirInt,"/",length(participantIds)))
 samplesFile<-samplesFiles[dirInt]
 readSamples()
@@ -446,6 +446,6 @@ for (plotMessageInt in 1:nrow(plotData)) {
   #смотрим участки сразу после появления стимула
   plotStartTime <- as.numeric(fixDotMessages[plotMessageInt,"Time"][1])
   
-  combiPlot(mode='cascade') #cascade, animation
+  combiPlot(mode='animation') #cascade, animation
   #dev.off()
 }

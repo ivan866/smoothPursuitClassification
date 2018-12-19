@@ -254,6 +254,7 @@ class MultiData():
                     samplesData['{0}POR{1}DegSmoothed'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
 
             #VELOCITY calculation
+            #TODO wrong calculation, remake with angles2 package
             screenDistMm = np.hypot(samplesData['{0}PORXMmSmoothed'.format(side)], samplesData['{0}PORYMmSmoothed'.format(side)])
             screenDistMmPrev = np.hstack((0, screenDistMm[:-1]))
             screenAngleRad = np.hstack((0, np.diff(np.arctan2(samplesData['{0}PORYMmSmoothed'.format(side)], samplesData['{0}PORXMmSmoothed'.format(side)]), axis=0)))

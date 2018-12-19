@@ -14,6 +14,9 @@ from parsers.DataReader import DataReader
 from parsers.DataExporter import DataExporter
 from parsers.MultiData import MultiData
 
+from algo.IBDT import IBDT
+from algo.IBDT import CLASSIFICATION
+
 #from plotting.TempoPlot import TempoPlot
 #from plotting.SpatialPlot import SpatialPlot
 #from plotting.CombiPlot import CombiPlot
@@ -134,6 +137,8 @@ def main():
 
         spc.settingsReader.select(args.settings_file)
         spc.dataReader.read(spc.settingsReader, spc.multiData)
+
+        spc.ibdt = IBDT(150, 0.9, CLASSIFICATION['BINARY'])
 
         for (channel, id) in spc.multiData.genChannelIds(channel='samples'):
             samplesData = spc.multiData.getChannelAndTag(channel, id, block='trial', ignoreEmpty=False)

@@ -4,3 +4,4 @@ pandas>=0.21.1
 jupyter
 matplotlib
 plotly
+opencv-python
