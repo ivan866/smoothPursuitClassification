@@ -1,21 +1,8 @@
-from numpy import array
-
-
-import cv2
-
-
-
-from algo.GazeData import MOVEMENT
+#TODO move whole class to IBDT.py
 
 
 
 
-
-
-
-
-
-#TODO keep here or move to class init
 MOVEMENT = {'FIXATION':0,
             'SACCADE':1,
             'PURSUIT':2,
@@ -32,6 +19,7 @@ class GazeDataEntry():
 
     """
     def __init__(self, ts:float, confidence:float, x:float, y:float):
+        #milliseconds!
         self.ts = ts
 
         self.confidence = confidence

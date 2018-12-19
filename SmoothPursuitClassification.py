@@ -6,6 +6,9 @@ from datetime import datetime
 
 
 
+import numpy as np
+from pandas import DataFrame
+
 
 from utils.SettingsReader import SettingsReader
 #from utils.Stats import Stats
@@ -15,7 +18,9 @@ from parsers.DataExporter import DataExporter
 from parsers.MultiData import MultiData
 
 from algo.IBDT import IBDT
+from algo.IBDT import IBDT_Data
 from algo.IBDT import CLASSIFICATION
+from algo.GazeData import GazeDataEntry
 
 #from plotting.TempoPlot import TempoPlot
 #from plotting.SpatialPlot import SpatialPlot
@@ -123,7 +128,7 @@ def main():
 
     jobGroup = parser.add_argument_group('job', 'Parameters of job running.')
     jobGroup.add_argument('--smooth', type=str, choices=['savgol', 'spline', 'conv'], default='spline', help='Filter name for gaze data smoothing.')
-    jobGroup.add_argument('--algo', type=str, choices=['ibdt', 'ivvt', 'ivdt', 'ivt', 'idt'], default='ivt', help='Algorithm name for detecting IRRELEVANT eye movement types.')
+    jobGroup.add_argument('--algo', type=str, choices=['ibdt', 'ivvt', 'ivdt', 'ivt', 'idt'], default='ivt', help='Algorithm name for detecting IRRELEVANT (usually) eye movement types.')
     jobGroup.add_argument('--classifier', type=str, choices=['blstm', 'fasterrcnn', 'cnn', 'ssd', 'irf'], default='fasterrcnn', help='Deep-learning neural network type.')
     jobGroup.add_argument('--backend', type=str, choices=['keras', 'tf', 'neon', 'sklearn'], default='keras', help='Machine learning library to use as a backend.')
     #FIXME надо списком эти аргументы
@@ -138,7 +143,30 @@ def main():
         spc.settingsReader.select(args.settings_file)
         spc.dataReader.read(spc.settingsReader, spc.multiData)
 
-        spc.ibdt = IBDT(150, 0.9, CLASSIFICATION['BINARY'])
+
+        #----
+        samples = spc.multiData.getChannelAndTag('samples', '09-1', 'trial')
+        samples['Time'] = samples['Time'] * 1000
+        samples['R Validity'] = 1 - samples['R Validity']
+        ibdtData = []
+        columnsData = samples[['Time', 'R Validity', 'R POR X [px]', 'R POR Y [px]']]
+        for index, row in columnsData.iterrows():
+            ibdtData.append( IBDT_Data( base=GazeDataEntry(ts=row['Time'], confidence=row['R Validity'], x=row['R POR X [px]'], y=row['R POR Y [px]']) ) )
+
+        spc.ibdt = IBDT(80, 0.5, CLASSIFICATION['TERNARY'])
+        spc.ibdt.train(ibdtData)
+        for pt in ibdtData:
+            spc.ibdt.addPoint(pt)
+
+        outAr = []
+        for pt in ibdtData:
+            outAr.append([pt.base.ts/1000, pt.base.classification])
+        output = DataFrame(outAr)
+        pursuits = output.loc[output[1]==2]
+        pursuits.to_csv('OUTPUT/out.csv',sep='\t',header=False,index=False)
+
+
+
 
         for (channel, id) in spc.multiData.genChannelIds(channel='samples'):
             samplesData = spc.multiData.getChannelAndTag(channel, id, block='trial', ignoreEmpty=False)
