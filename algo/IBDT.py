@@ -1,19 +1,15 @@
+#TODO try angular speed mode
 from collections import deque
+
+
+
 import numpy as np
-#TODO probably cv2.Algorithm
-import algorithm
 
 
-
-#core
 import cv2
-from cv2 import ml
 
 
 
-from algo.IBDT import IBDT_Prob
-from algo.IBDT import IBDT_Data
-from algo.IBDT import CLASSIFICATION
 from algo import GazeData
 from algo.GazeData import GazeDataEntry
 from algo.GazeData import MOVEMENT
@@ -46,7 +42,6 @@ class IBDT():
         self.classification = classification
 
 
-        # IBDT_Data
         #TODO maybe change to list
         self.window = deque()
         self.cur  = IBDT_Data(base=GazeDataEntry(ts=0.0, confidence=0.0, x=0.0, y=0.0))
@@ -58,10 +53,8 @@ class IBDT():
 
 
 
-        # TODO Ptr<>
-        self.model = cv2.ml.EM()
+        self.model = None
 
-        # TODO ?
         self.fIdx = 0
         self.sIdx = 0
         self.fMean = None
@@ -74,15 +67,18 @@ class IBDT():
 
 
     #DATA calculating methods
-    def addPoint(self, entry:GazeDataEntry) -> None:
-        """Adds a point to the data np.array, calculates velocity and classifies event type of the given sample, if already trained.
+    def addPoint(self, entry:object) -> None:
+        """Calculates velocity and classifies event type of the given sample, if already trained.
 
+        Not a method for aggregating data samples. Method is for using the classifier.
+
+        :param entry: IBDT_Data to classify event on.
         :return:
         """
-        entry.classification = MOVEMENT['UNDEF']
+        entry.base.classification = MOVEMENT['UNDEF']
 
         #Low confidence, ignore it
-        if entry.confidence < self.minSampleConfidence:
+        if entry.base.confidence < self.minSampleConfidence:
             return None
 
 
@@ -90,10 +86,11 @@ class IBDT():
         #Add new point to window and update previous valid point
         self.window.append( entry )
         self.prev = self.cur
-        self.cur = self.window[len(self.window)]
+        self.cur = self.window[len(self.window)-1]
 
         #Remove old entries from window
         while True:
+            #TODO math.abs() needed??
             if (self.cur.base.ts - self.window[0].base.ts) > (2*self.maxSaccadeDurationMs):
                 self.window.popleft()
             else:
@@ -107,10 +104,9 @@ class IBDT():
             return None
 
 
+
         #We have an intersample period, let's classify it
         self.cur.base.v = self.estimateVelocity(self.cur, self.prev)
-
-
 
         #Update the priors
         self.updatePursuitPrior()
@@ -137,7 +133,6 @@ class IBDT():
             self.binaryClassification()
 
 
-        #TODO ??must be a returned value instead of original pointer
         entry.classification = self.cur.base.classification
 
 
@@ -146,17 +141,17 @@ class IBDT():
     def train(self, gaze:list) -> None:
         """Perform training on the data specified, split velocity means on 2 clusters and update model hyperparameters.
 
+        :param gaze: list of IBDT_Data to train on.
         :return:
         """
-        samples = cv2.Mat_()
+        samples = deque()
 
 
 
         #Find first valid sample
         for index in range(0, len(gaze)):
             previous = gaze[index]
-            if (previous != gaze[len(gaze)]) and (previous.base.confidence < self.minSampleConfidence):
-                #TODO byref or byval assignment?
+            if (previous != gaze[len(gaze)-1]) and (previous.base.confidence < self.minSampleConfidence):
                 previous.base.v = np.nan
                 continue
             else:
@@ -175,19 +170,19 @@ class IBDT():
 
             g.base.v = self.estimateVelocity( g, previous )
             if not np.isnan(g.base.v):
-                samples.push_back(g.base.v)
+                samples.append(g.base.v)
 
             previous = g
 
 
 
 
-        self.model = cv2.ml.EM.create()
+        self.model = cv2.ml.EM_create()
         self.model.setClustersNumber(2)
-        # default is 2
-        self.model.setCovarianceMatrixType(cv2.ml.EM.COV_MAT_GENERIC)
-        self.model.setTermCriteria( cv2.TermCriteria(cv2.TermCriteria_COUNT + cv2.TermCriteria_EPS, 15000, 1e-6) )
-        self.model.trainEM(samples)
+        self.model.setCovarianceMatrixType(cv2.ml.EM_COV_MAT_GENERIC)
+        #TODO + or binary OR??
+        self.model.setTermCriteria((cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, 15000, 1e-6))
+        self.model.trainEM(np.array(samples))
 
 
 
@@ -195,19 +190,19 @@ class IBDT():
         self.sIdx = 1
         means = self.model.getMeans()
         #higher mean velocities are saccades
-        if means.at(0) > means.at(1):
+        if means[0] > means[1]:
             self.fIdx = 1
             self.sIdx = 0
 
-        self.fMean = means.at(self.fIdx)
-        self.sMean = means.at(self.sIdx)
+        self.fMean = means[self.fIdx]
+        self.sMean = means[self.sIdx]
 
 
 
 
 
 
-    def estimateVelocity(self, cur:GazeDataEntry, prev:GazeDataEntry) -> float:
+    def estimateVelocity(self, cur:object, prev:object) -> float:
         """Simple velocity, no smoothing, no angular speed.
 
         :param cur:
@@ -215,7 +210,7 @@ class IBDT():
         :return: velocity from trigonometric distance (incorrect)
         """
         #TODO simple trigonometric distance, must be cosine law for spherical eye model
-        dist = cv2.norm( cv2.Point2f(cur.base.x, cur.base.y) - cv2.Point2f(prev.base.x, prev.base.y) )
+        dist = cv2.norm( np.array([cur.base.x, cur.base.y]), np.array([prev.base.x, prev.base.y]) )
         dt = cur.base.ts - prev.base.ts
         return dist / dt
 
@@ -282,11 +277,10 @@ class IBDT():
             return None
 
 
-        sample = cv2.Mat_(1,1, self.cur.base.v)
-        likelihoods = cv.Mat_()
-        self.model.predict( sample, likelihoods )
-        self.cur.fixation.likelihood = likelihoods.at(self.fIdx)
-        self.cur.saccade.likelihood = likelihoods.at(self.sIdx)
+        sample = np.array(self.cur.base.v)
+        likelihoods = self.model.predict( sample )[1][0]
+        self.cur.fixation.likelihood = likelihoods[self.fIdx]
+        self.cur.saccade.likelihood = likelihoods[self.sIdx]
 
 
 
@@ -367,6 +361,7 @@ class IBDT_Data():
     Makes a data sample.
 
     """
+    #TODO adapt for direct dataframe input
     def __init__(self, base:GazeDataEntry):
         self.base = base
 
