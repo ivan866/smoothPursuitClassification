@@ -3,6 +3,8 @@ from datetime import timedelta
 
 
 import numpy as np
+from scipy.signal import convolve
+from scipy.signal import cspline1d
 from scipy.signal import savgol_filter
 from pandas import DataFrame
 
@@ -26,6 +28,11 @@ class MultiData():
         self.multiData['availColumns'] = {}
         self.multiData['samples'] = {}
         self.multiData['messages'] = {}
+        #----
+        self.multiData['fixation'] = {}
+        self.multiData['saccade'] = {}
+        self.multiData['pursuit'] = {}
+        #----
         self.multiData['gaze'] = {}
         self.empty = True
 
@@ -38,10 +45,16 @@ class MultiData():
         :return: Tuple with current channel and id, if such id present in multiData.
         """
         if self.settingsReader.check() and self.check():
-            for file in self.settingsReader.getTypes(channel):
+            channelZeroName = self.settingsReader.substVersatileChannels(channel)
+            typeList = self.settingsReader.getTypes(channelZeroName)
+            #на случай если нет комбинированного типа в настройках
+            if not len(typeList):
+                typeList = self.settingsReader.getTypes(channel)
+            for file in typeList:
                 id = file.get('id')
                 if self.hasChannelById(channel, id):
                     yield (channel, id)
+
 
 
     def reset(self) -> None:
@@ -90,6 +103,8 @@ class MultiData():
         elif format=='as_is':
             return result
 
+
+
     def getChannelAndTag(self, channel:str, id:str, block:str, format:str='as_is', ignoreEmpty:bool=True) -> object:
         """Returns what's inside the given channel, but tags the data by record tag, id and interval first.
         
@@ -101,12 +116,13 @@ class MultiData():
         :return: 
         """
         chData = self.getChannelById(channel, id, format=format)
+        channelZeroName = self.settingsReader.substVersatileChannels(channel)
         #zeroTime tag only applicable to INTERVALS block, because it is predefined for data channels
         if block == 'interval':
-            startFrom = self.settingsReader.getZeroTimeById(channel, id)
+            startFrom = self.settingsReader.getZeroTimeById(channelZeroName, id)
         else:
             startFrom = 0
-        pathAttr = self.settingsReader.getPathAttrById(type=channel, id=id)
+        pathAttr = self.settingsReader.getPathAttrById(type=channelZeroName, id=id)
         if ('Record tag' not in chData.columns) and ('Id' not in chData.columns):
             chData.insert(2, 'Record tag', pathAttr)
             chData.insert(3, 'Id', id)
@@ -116,6 +132,8 @@ class MultiData():
             chData.insert(8, 'Id 2', id)
 
         return self.tagIntervals(chData, startFrom, block=block, ignoreEmpty=ignoreEmpty)
+
+
 
 
 
@@ -188,10 +206,16 @@ class MultiData():
         zeroTime = data.iloc[0, 0]
         for timestamp in data.iloc[:, 0]:
             zeroBased.append(timestamp - zeroTime)
-        data.insert(1, 'TimestampZeroBased', zeroBased)
+        #FIXME should be no duplicates
+        data.insert(1, 'TimestampZeroBased', zeroBased, allow_duplicates=True)
 
         #inheriting metadata
-        data.metadata = chData.metadata
+        try:
+            data.metadata = chData.metadata
+        except AttributeError:
+            pass
+
+
         return data
 
 
@@ -210,7 +234,7 @@ class MultiData():
         #  mapping goes to multiData metadata property
         #TODO B side (binocular) variant not implemented (applicable for SMI ETG)
         if all(samplesData['L POR X [px]'] == samplesData['R POR X [px]']) and all(samplesData['L POR Y [px]'] == samplesData['R POR Y [px]']):
-            self.main.printToOut('Left and right channels detected equivalent. Working with left channel only.')
+            self.main.printToOut('Left and right channels detected equivalent. Working with one channel only.')
             samplesData.metadata['equivalent'] = True
 
         metadata = samplesData.metadata
@@ -218,7 +242,8 @@ class MultiData():
         self.main.printToOut('Now calculating velocity, be patient.')
 
         if metadata['equivalent']:
-            sides = ['L']
+            #должен быть ведущий глаз
+            sides = ['R']
         else:
             sides = ['L', 'R']
 
@@ -226,12 +251,20 @@ class MultiData():
         for side in sides:
             for dim in ['X', 'Y']:
                 # smoothing
+                dataToSmooth = samplesData['{0} POR {1} [px]'.format(side, dim)]
                 if smooth == 'savgol':
-                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = savgol_filter(samplesData['{0} POR {1} [px]'.format(side, dim)], 15, 2)
+                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = savgol_filter(dataToSmooth, 15, 2)
                 elif smooth == 'spline':
-                    raise NotImplementedError
+                    #scipy.interpolate.UnivariateSpline(x,y, k=1).get_coeffs()
+                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = cspline1d(np.array(dataToSmooth), lamb=3)
                 elif smooth == 'conv':
-                    raise NotImplementedError
+                    #width and shape of convolution, equivalent to moving average if all 1
+                    win = np.array([1,1,1,1,1,1])
+                    samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] = convolve(np.array(dataToSmooth), in2=win, mode='same') / win.sum()
+                else:
+                    self.main.printToOut('ERROR: Invalid smoothing function specified.')
+
+
 
                 if dim == 'X':
                     screenDim = metadata['screenWidthPx']
@@ -242,28 +275,40 @@ class MultiData():
                     screenRes = metadata['screenVResMm']
                     multiplier = -1
 
+
                 if not convertToDeg:
                     self.main.printToOut('ERROR: Raw pixels in data are currently assumed, column names hard-coded.')
                     raise NotImplementedError
                 else:
                     #converting to DEGREES
-                    #TODO factor out to Utils
                     samplesData['{0}POR{1}Mm'.format(side, dim)]  = multiplier * (samplesData['{0} POR {1} [px]'.format(side, dim)] - screenDim / 2) * screenRes
-                    samplesData['{0}POR{1}Deg'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}Mm'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
+                    coordsMm = samplesData['{0}POR{1}Mm'.format(side, dim)]
+                    samplesData['{0}POR{1}Deg'.format(side, dim)] = np.sign(coordsMm) * coordsMm.apply(lambda x: Utils.getSeparation(x,0, 0,0,  z=metadata['headDistanceMm'],  mode='fromCartesian'))
+                    #----
                     samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] = multiplier * (samplesData['{0}POR{1}PxSmoothed'.format(side, dim)] - screenDim / 2) * screenRes
-                    samplesData['{0}POR{1}DegSmoothed'.format(side, dim)] = np.arctan(samplesData['{0}POR{1}MmSmoothed'.format(side, dim)] / metadata['headDistanceMm']) / math.pi * 180
+                    coordsMm = samplesData['{0}POR{1}MmSmoothed'.format(side, dim)]
+                    samplesData['{0}POR{1}DegSmoothed'.format(side, dim)] = np.sign(coordsMm) * coordsMm.apply(lambda x: Utils.getSeparation(x,0, 0,0,  z=metadata['headDistanceMm'],  mode='fromCartesian'))
+
+
 
             #VELOCITY calculation
-            #TODO wrong calculation, remake with angles2 package
-            screenDistMm = np.hypot(samplesData['{0}PORXMmSmoothed'.format(side)], samplesData['{0}PORYMmSmoothed'.format(side)])
-            screenDistMmPrev = np.hstack((0, screenDistMm[:-1]))
-            screenAngleRad = np.hstack((0, np.diff(np.arctan2(samplesData['{0}PORYMmSmoothed'.format(side)], samplesData['{0}PORXMmSmoothed'.format(side)]), axis=0)))
-            eyeDistMm = np.hypot(screenDistMm, metadata['headDistanceMm'])
-            eyeDistMmPrev = np.hstack((0, eyeDistMm[:-1]))
-            screenScanpathMm = screenDistMm ** 2 + screenDistMmPrev ** 2 - 2 * screenDistMm * screenDistMmPrev * np.cos(screenAngleRad)
-            eyeAngleRad = np.arccos((eyeDistMm ** 2 + eyeDistMmPrev ** 2 - screenScanpathMm ** 2) / (2 * eyeDistMm * eyeDistMmPrev))
+            x = samplesData['{0}PORXDeg'.format(side)]
+            y = samplesData['{0}PORYDeg'.format(side)]
+            row = DataFrame({'x1':x[1:].reset_index(drop=True), 'y1':y[1:].reset_index(drop=True),  'x0':x[:(len(x) - 1)].reset_index(drop=True), 'y0':y[:(len(y) - 1)].reset_index(drop=True)})
+            seps = row.apply(lambda rowApply: Utils.getSeparation(x1=rowApply['x1'], y1=rowApply['y1'],  x2=rowApply['x0'], y2=rowApply['y0'],  z=metadata['headDistanceMm'],  mode='fromPolar'), axis=1)
+            separation = np.hstack((1, seps))
             timelag = np.hstack((1, np.diff(samplesData['Time'])))
-            samplesData['{0}Velocity'.format(side)] = eyeAngleRad / math.pi * 180 / timelag
+            samplesData['{0}Velocity'.format(side)] = separation / timelag
+
+            #----
+            x = samplesData['{0}PORXDegSmoothed'.format(side)]
+            y = samplesData['{0}PORYDegSmoothed'.format(side)]
+            row = DataFrame({'x1': x[1:].reset_index(drop=True), 'y1': y[1:].reset_index(drop=True), 'x0': x[:(len(x) - 1)].reset_index(drop=True), 'y0': y[:(len(y) - 1)].reset_index(drop=True)})
+            seps = row.apply(lambda rowApply: Utils.getSeparation(x1=rowApply['x1'], y1=rowApply['y1'], x2=rowApply['x0'], y2=rowApply['y0'], z=metadata['headDistanceMm'], mode='fromPolar'), axis=1)
+            separation = np.hstack((1, seps))
+            timelag = np.hstack(( 1, np.diff(samplesData['Time']) ))
+            samplesData['{0}VelocitySmoothed'.format(side)] = separation / timelag
+
 
         self.main.printToOut('Done.', status='ok')
         return samplesData

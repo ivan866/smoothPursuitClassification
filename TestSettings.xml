@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+
+
+<!-- This is SmoothPursuitClassification settings file -->
+<settings>
+	<file id="09-1" type="samples" path="testdata/9_ex-CSB_2015_06_27_1522 Samples.txt" zeroTime="1.551473"/>
+
+
+
+
+
+<!-- INTERVALS block -->
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="tr-01" 	 path="st/tr-01.avi" 	 duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="tr-02" 	 path="st/tr-02.avi" 	 duration="1:00.000000"/>
+ 
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="T-S01-ES1" path="st/T-S01-ES1.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="T-S01-ES2" path="st/T-S01-ES2.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="T-S01-ES3" path="st/T-S01-ES3.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="T-S01-ES4" path="st/T-S01-ES4.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="T-S01-ES5" path="st/T-S01-ES5.avi" duration="1:00.000000"/>
+
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="F-S01-ES1" path="st/F-S01-ES1.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="F-S01-ES2" path="st/F-S01-ES2.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="F-S01-ES3" path="st/F-S01-ES3.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="F-S01-ES4" path="st/F-S01-ES4.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="F-S01-ES5" path="st/F-S01-ES5.avi" duration="1:00.000000"/>
+
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="I-S01-ES1" path="st/I-S01-ES1.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="I-S01-ES2" path="st/I-S01-ES2.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="I-S01-ES3" path="st/I-S01-ES3.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="I-S01-ES4" path="st/I-S01-ES4.avi" duration="1:00.000000"/>
+	<interval id="" 	 	 path="FixPoint_" 	 	 duration="0:01.000000"/>
+	<interval id="I-S01-ES5" path="st/I-S01-ES5.avi" duration="1:00.000000"/>
+</settings>

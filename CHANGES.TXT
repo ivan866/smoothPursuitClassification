@@ -1,8 +1,22 @@
 ---------------
-2018-10-01 SmoothPursuitClassification 0.1
+2018-12-20 SmoothPursuitClassification 0.1
 ---------------
 
 What's new?
-
 - Repository started at gitlab.com/ivan866/smoothPursuitClassification
+- Mirrored at github.com/ivan866/smoothPursuitClassification
+- New feature: 3 smoothing variants implemented: savgol, spline, conv
+- New feature: velocity calculated as spherical eye model
+- New feature: I-VT event detector
+- New feature: I-BDT classifier
+- New feature: I-VT classifier uses velocity calculated by one of three smooth algorithms, thus results of detection differ
 - New feature: debug log
+- Dependencies added: scipy>=1.0.0, numpy, pandas>=0.21.1, opencv-python, eyestudio, angles
+
+Known bugs:
+- Events classified by I-BDT are not filtered by minimum duration
+- I-BDT classifier does not use angular velocity, uses simple distance/time instead
+- No neural net classifiers implemented
+- Tobii data not supported yet
+- Tagging data stream on trials and messages is not implemented yet
+- No plotting inside main script implemented

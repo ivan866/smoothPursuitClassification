@@ -4,13 +4,13 @@ from collections import deque
 
 
 import numpy as np
+from pandas import DataFrame
 
 
 import cv2
 
 
 
-from algo import GazeData
 from algo.GazeData import GazeDataEntry
 from algo.GazeData import MOVEMENT
 
@@ -33,7 +33,8 @@ class IBDT():
 
     Confidence column is not meaningful for SMI eyetrackers. Replaced by 1-validity.
 
-    Ported by ivan866 on 2018.12.08.
+    Based on Santini, Fuhl, Kubler, Kasneci, University of Tubingen, 2016, 2017.
+    Ported by ivan866 on 2018.12.19.
 
     """
     def __init__(self, maxSaccadeDurationMs:float = 80, minSampleConfidence:float = 0.5, classification:int = CLASSIFICATION['TERNARY']):
@@ -47,7 +48,6 @@ class IBDT():
         self.cur  = IBDT_Data(base=GazeDataEntry(ts=0.0, confidence=0.0, x=0.0, y=0.0))
         self.prev = IBDT_Data(base=GazeDataEntry(ts=0.0, confidence=0.0, x=0.0, y=0.0))
 
-        # True
         self.firstPoint = False
 
 
@@ -216,6 +216,64 @@ class IBDT():
 
 
 
+    def runJob(self, data:DataFrame,  maxSaccadeDurationMs:float, minSampleConfidence:float, classification:int) -> list:
+        """Sets classifier parameters, runs classification and returns list of specified event type.
+
+        :param data: pandas dataframe with 4 columns - time(ms), validity(higher is more valid), x(px or mm), y(px or mm).
+        :param maxSaccadeDurationMs: saccades longer than this will not be classified as saccades.
+        :param minSampleConfidence: validity lower than this will be considered undefined sample.
+        :param classification: int code whether to classify pursuits or fixations and saccades only.
+        :return: list of IBDT_Data with events classified.
+        """
+        self.maxSaccadeDurationMs = maxSaccadeDurationMs
+        self.minSampleConfidence = minSampleConfidence
+        self.classification = classification
+
+
+        #----
+        ibdtData = []
+        for index, row in data.iterrows():
+            ibdtData.append(IBDT_Data( base=GazeDataEntry(ts=row[0], confidence=row[1], x=row[2], y=row[3]) ))
+
+        #----
+        self.train(ibdtData)
+        for pt in ibdtData:
+            self.addPoint(pt)
+        self.result = ibdtData
+
+
+        return self.result
+
+
+
+    def getResultFiltered(self) -> tuple:
+        """Parses result of classification, finds event time borders, calculates durations.
+
+        :return: tuple of 3 dataframes - fixations, saccades, smooth pursuits.
+        """
+        outAr = []
+        for pt in self.result:
+            outAr.append([pt.base.ts / 1000, pt.base.classification])
+        output = DataFrame(outAr, columns=['Time', 'EventId'])
+
+        #----
+        #выделяем границы всех найденных событий
+        #TODO можно добавить подсчет статистики - min,max,mean velocity событий
+        classDiff = np.hstack((1, np.diff(output['EventId'])))
+        nonzero = output[classDiff!=0]
+        durations = np.hstack((np.diff(nonzero['Time']), np.nan))
+        nonzero.insert(1, 'Duration', durations)
+
+        allEvents = (nonzero.loc[nonzero['EventId'] == MOVEMENT['FIXATION']],
+                     nonzero.loc[nonzero['EventId'] == MOVEMENT['SACCADE']],
+                     nonzero.loc[nonzero['EventId'] == MOVEMENT['PURSUIT']]
+                     )
+
+        return allEvents
+
+
+
+
 
 
 
@@ -278,9 +336,14 @@ class IBDT():
 
 
         sample = np.array(self.cur.base.v)
-        likelihoods = self.model.predict( sample )[1][0]
-        self.cur.fixation.likelihood = likelihoods[self.fIdx]
-        self.cur.saccade.likelihood = likelihoods[self.sIdx]
+        try:
+            likelihoods = self.model.predict( sample )[1][0]
+            self.cur.fixation.likelihood = likelihoods[self.fIdx]
+            self.cur.saccade.likelihood = likelihoods[self.sIdx]
+        #all zeros in sample
+        except cv2.error:
+            self.cur.fixation.likelihood = 0.0
+            self.cur.saccade.likelihood = 0.0
 
 
 

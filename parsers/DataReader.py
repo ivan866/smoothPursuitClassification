@@ -5,6 +5,9 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 
 
+from utils import Utils
+
+
 
 
 
@@ -72,6 +75,8 @@ class DataReader():
                         metablock.append(headers)
                 metablock = ''.join(metablock)
 
+
+
                 #tested on SMI RED-m-HP data only
                 availColumns = [i for i in headers.strip().split('\t') if re.match('Time|Type|Trial|L POR X \[px\]|L POR Y \[px\]|R POR X \[px\]|R POR Y \[px\]|Timing|Latency|L Validity|R Validity|Frame|Trigger|Aux1', i)]
                 multiData.setNode('availColumns', fileElem.get('id'), availColumns)
@@ -87,6 +92,8 @@ class DataReader():
                 samplesData = samplesData.loc[samplesData['Type']=='SMP']
 
 
+
+
                 #MSG lines
                 messagesData = pd.read_table(filePath,
                                              decimal=".", sep='\t', skiprows=skiprows, header=0, usecols=[0,1,2,3], encoding='UTF-8',
@@ -96,6 +103,8 @@ class DataReader():
                 messagesData = messagesData.loc[messagesData['Type'] == 'MSG']
                 messagesData.rename(columns={messagesData.columns[3]: "Text"}, inplace=True)
                 messagesData['Text'] = messagesData['Text'].apply(lambda x: re.sub('# Message: (.*)', '\\1', str(x)))
+
+
 
 
                 #MESSAGES block
@@ -124,6 +133,8 @@ class DataReader():
                         duration = maxTime - row['Time']
                     messageTag.set('duration', str(duration))
                     settingsReader.settings.append(messageTag)
+
+
 
                 #TRIALS block
                 #trials are assumed to have no gaps between them
@@ -154,6 +165,8 @@ class DataReader():
                 #TODO not implemented
 
 
+
+
                 #get metadata
                 #values assumed to be integers
                 sampleRate = int(re.search('Sample Rate:\t(\d+)', metablock).groups()[0])
@@ -162,9 +175,10 @@ class DataReader():
                 screenSizeMm = re.search('Stimulus Dimension \[mm\]:\t(\d+)\t(\d+)', metablock).groups()
                 screenWidthMm, screenHeightMm = int(screenSizeMm[0]), int(screenSizeMm[1])
                 headDistanceMm = int(re.search('Head Distance \[mm\]:\t(\d+)', metablock).groups()[0])
-                #degrees, assuming the eyesight axis is centered around the screen
-                screenWidthDeg = math.atan(screenWidthMm / 2 / headDistanceMm) * 180 / math.pi * 2
-                screenHeightDeg = math.atan(screenHeightMm / 2 / headDistanceMm) * 180 / math.pi * 2
+
+                #degrees, assuming the eyesight axis is centered around the screen (spherical eye model)
+                screenWidthDeg = Utils.getSeparation(-screenWidthMm/2,0, screenWidthMm/2,0,  z=headDistanceMm,  mode='fromCartesian')
+                screenHeightDeg = Utils.getSeparation(-screenHeightMm / 2, 0, screenHeightMm / 2, 0, z=headDistanceMm, mode='fromCartesian')
                 screenHResMm, screenVResMm = screenWidthMm / screenWidthPx, screenHeightMm / screenHeightPx
                 metadata = {'sampleRate': sampleRate,
                             'screenWidthPx': screenWidthPx, 'screenHeightPx': screenHeightPx,
@@ -186,6 +200,9 @@ class DataReader():
 
             multiData.setNode('samples', fileElem.get('id'), samplesData)
             multiData.setNode('messages', fileElem.get('id'), messagesData)
+
+
+
 
 
 
@@ -240,6 +257,8 @@ class DataReader():
 
 
             multiData.setNode('gaze', fileElem.get('id'), gazeData)
+
+
 
 
 

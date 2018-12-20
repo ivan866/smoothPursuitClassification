@@ -1,30 +1,25 @@
 #!/usr/bin/env python
-import argparse, sys, logging, winsound
+import argparse, sys, logging, warnings, winsound
 from datetime import datetime
 
 #py.init_notebook_mode(connected=True)
 
 
 
-import numpy as np
 from pandas import DataFrame
 
 
 from utils.SettingsReader import SettingsReader
-#from utils.Stats import Stats
 
 from parsers.DataReader import DataReader
 from parsers.DataExporter import DataExporter
 from parsers.MultiData import MultiData
 
+from algo.IVTFilter import IVTFilter
 from algo.IBDT import IBDT
-from algo.IBDT import IBDT_Data
 from algo.IBDT import CLASSIFICATION
-from algo.GazeData import GazeDataEntry
+from algo.GazeData import MOVEMENT
 
-#from plotting.TempoPlot import TempoPlot
-#from plotting.SpatialPlot import SpatialPlot
-#from plotting.CombiPlot import CombiPlot
 
 
 
@@ -45,11 +40,13 @@ class SmoothPursuitClassification():
         logging.basicConfig(filename='debug.log',
                             level=logging.DEBUG,
                             format=self.logFormat)
-        self.logger=logging.getLogger()
+        self.logger = logging.getLogger()
+        warnings.filterwarnings('ignore')
 
         self.PROJECT_NAME = 'Smooth Pursuit Classification'
         self.PROJECT_NAME_SHORT = 'SP-c'
-        self.GAZE_COMPONENTS_LIST = ['fixations','saccades','eyesNotFounds','unclassifieds',"imu","gyro","accel"]
+        self.SAMPLES_COMPONENTS_LIST = ['fixation', 'saccade', 'pursuit',    'messages']
+        self.GAZE_COMPONENTS_LIST = ['fixations','saccades',    'eyesNotFounds','unclassifieds',      "imu", "gyro","accel"]
         self.VIDEO_FRAMERATE = 60
 
 
@@ -144,51 +141,72 @@ def main():
         spc.dataReader.read(spc.settingsReader, spc.multiData)
 
 
+
         #----
-        samples = spc.multiData.getChannelAndTag('samples', '09-1', 'trial')
-        samples['Time'] = samples['Time'] * 1000
-        samples['R Validity'] = 1 - samples['R Validity']
-        ibdtData = []
-        columnsData = samples[['Time', 'R Validity', 'R POR X [px]', 'R POR Y [px]']]
-        for index, row in columnsData.iterrows():
-            ibdtData.append( IBDT_Data( base=GazeDataEntry(ts=row['Time'], confidence=row['R Validity'], x=row['R POR X [px]'], y=row['R POR Y [px]']) ) )
-
-        spc.ibdt = IBDT(80, 0.5, CLASSIFICATION['TERNARY'])
-        spc.ibdt.train(ibdtData)
-        for pt in ibdtData:
-            spc.ibdt.addPoint(pt)
-
-        outAr = []
-        for pt in ibdtData:
-            outAr.append([pt.base.ts/1000, pt.base.classification])
-        output = DataFrame(outAr)
-        pursuits = output.loc[output[1]==2]
-        pursuits.to_csv('OUTPUT/out.csv',sep='\t',header=False,index=False)
-
-
-
-
         for (channel, id) in spc.multiData.genChannelIds(channel='samples'):
+            #SMOOTHING
             samplesData = spc.multiData.getChannelAndTag(channel, id, block='trial', ignoreEmpty=False)
             velocityData = spc.multiData.getVelocity(samplesData=samplesData, smooth=args.smooth, convertToDeg=True)
             spc.multiData.setNode(channel, id, velocityData)
 
-            velocityData.loc[:, ('LVelocity', 'RVelocity')]
 
-            #if args.algo=='ivt':
-                #algo.IVTFilter(spc, spc.multiData, settingsReader=spc.settingsReader)
 
-            #if args.classifier=='blstm':
+
+            #algo DETECTORS
+            #TODO R channel hard-coded
+            spc.printToOut('Classifying.')
+            if args.algo == 'ivt':
+                filter = IVTFilter()
+                filter.runJob(velocityData[['Time', 'RVelocitySmoothed']],  150, 15, 0.250, 0.035)
+                spc.printToOut( 'I-VT filter finished, with parameters: {0}'.format(filter.printParams()) )
+                spc.multiData.setNode('fixation', id, filter.getResultFiltered(state='fixation'))
+                spc.multiData.setNode('saccade', id, filter.getResultFiltered(state='saccade'))
+
+            elif args.algo == 'ibdt':
+                columnsData = DataFrame({'Time':velocityData['Time'] * 1000, 'confidence':1-velocityData['R Validity'], 'x':velocityData['R POR X [px]'], 'y':velocityData['R POR Y [px]']})
+                filter = IBDT()
+                filter.runJob(columnsData,  80, 0.5, CLASSIFICATION['TERNARY'])
+                allEvents = filter.getResultFiltered()
+                spc.printToOut('I-BDT classifier finished.')
+                spc.multiData.setNode('fixation', id, allEvents[MOVEMENT['FIXATION']])
+                spc.multiData.setNode('saccade', id, allEvents[MOVEMENT['SACCADE']])
+                spc.multiData.setNode('pursuit', id, allEvents[MOVEMENT['PURSUIT']])
+
+
+
+
+            #neural network CLASSIFIERS
+            if args.classifier == 'blstm':
                 #nn.LSTM(spc, spc.multiData, settingsReader=spc.settingsReader)
+                pass
+            elif args.classifier == 'fasterrcnn':
+                #nn.FasterRCNN()
+                pass
 
+
+
+
+            #PLOTTING
             #if args.plots == 'xyt':
                 #spc.CombiPlot(spc, spc.multiData, settingsReader=spc.settingsReader)
 
-        spc.printToOut('Successful execution.')
-        input('Press Return to exit...')
+
+
+
+
+
+        #EXPORTING all data
+        spc.dataExporter.exportCSV(spc.multiData)
+
+
+
+
+        spc.printToOut('Successful execution.', status='ok')
+        #input('Press Return to exit...')
         sys.exit()
+
     else:
-        spc.printToOut('Settings file was not specified. Unable to proceed.')
+        spc.printToOut('Settings file was not specified. Unable to proceed.', status='error')
         input('Press Return to exit...')
         sys.exit()
 

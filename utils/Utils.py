@@ -1,4 +1,7 @@
+import math, cmath
 from datetime import datetime, date, timedelta
+
+import angles
 
 import pandas
 from pandas import Series
@@ -59,3 +62,31 @@ def parseTimeV(data:Series) -> Series:
         return pandas.to_timedelta(data.astype(float), unit='s')
     else:
         return pandas.to_datetime(data.astype(str), infer_datetime_format=True) - date.today()
+
+
+
+
+#CONVERSION methods
+def getSeparation(x1:float,y1:float, x2:float,y2:float,  z:float,  mode:str) -> float:
+    """Returns angular separation between two angles on a unit sphere.
+
+    :param x1:
+    :param y1:
+    :param x2:
+    :param y2:
+    :param z: depth, in mm
+    :param mode: whether coordinates are passed in mm or degrees
+    :return: angle in degrees
+    """
+    if mode=='fromCartesian':
+        lon1 = cmath.polar(complex(x1, z))[1]-math.pi/2
+        lat1 = cmath.polar(complex(y1, z))[1]-math.pi/2
+        lon2 = cmath.polar(complex(x2, z))[1]-math.pi/2
+        lat2 = cmath.polar(complex(y2, z))[1]-math.pi/2
+
+        sep = angles.sep(lon1,lat1, lon2,lat2)
+    elif mode=='fromPolar':
+        sep = angles.sep(math.radians(x1),math.radians(y1), math.radians(x2),math.radians(y2))
+
+
+    return math.degrees(sep)

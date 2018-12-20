@@ -24,7 +24,7 @@ class DataExporter():
 
 
 
-    def createDir(self, prefix:str='OUTPUT', dryRun:bool=False) -> str:
+    def createDir(self, prefix:str = 'OUTPUT', dryRun:bool = False) -> str:
         """Creates timestamped directory to save data into.
 
         :param prefix: directory name prefix.
@@ -46,7 +46,7 @@ class DataExporter():
             raise ValueError('No settings found')
 
 
-    def copyMeta(self, saveDir:str='') -> None:
+    def copyMeta(self, saveDir:str = '') -> None:
         """Writes settings and report to previously created save directory.
 
         :param saveDir:
@@ -54,9 +54,9 @@ class DataExporter():
         """
         if self.settingsReader.check():
             if saveDir:
-                metaDir=saveDir
+                metaDir = saveDir
             else:
-                metaDir=self.saveDir
+                metaDir = self.saveDir
             self.settingsReader.save(metaDir)
             self.main.printToOut('Current settings copied to output.')
             self.main.saveConsole(metaDir)
@@ -66,8 +66,6 @@ class DataExporter():
 
     def exportCSV(self, multiData:object, format:str='csv') -> None:
         """Writes all data to CSV files.
-
-        Useful for further manual import into MySQL.
 
         :param multiData:
         :param format:
@@ -80,11 +78,15 @@ class DataExporter():
                 stacked = DataFrame()
                 file = '{0}/{1}_appended.{2}'.format(saveDir, type, format)
                 for (channel, id) in multiData.genChannelIds(channel=type):
-                    data = multiData.getChannelAndTag(channel, id, 'dataframe', ignoreEmpty=True)
-                    stacked=stacked.append(data, sort=False)
+                    #TODO switch to tagging mode if more than 1 id in settings
+                    #data = multiData.getChannelAndTag(channel, id,   block='interval', format='dataframe',   ignoreEmpty=False)
+                    data = multiData.getChannelById(channel, id,   format='dataframe')
+                    stacked = stacked.append(data, sort=False)
 
-                if format=="csv" and len(stacked):
+                if format == "csv" and len(stacked):
                     stacked.to_csv(file, sep='\t', header=True, index=False, mode='w')
 
-            self.main.printToOut('Done. Intervals tagged.', status='ok')
+
+            #----
+            self.main.printToOut('Done. Data blocks tagged.', status='ok')
             self.copyMeta()

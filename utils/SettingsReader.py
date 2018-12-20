@@ -107,6 +107,25 @@ class SettingsReader:
                     self.main.printToOut('WARNING: File specified in settings (' + os.path.basename(file) + ') does not exist!')
 
 
+
+
+    def substVersatileChannels(self, channel: str) -> str:
+        """Substitutes related versatile channel names, which should be the name of the source file type channel in settings.
+
+        :param channel: versatile channel name, like samples or gaze.
+        :return: master channel name.
+        """
+        #FIXME hotfix
+        if channel in self.main.SAMPLES_COMPONENTS_LIST and self.hasType('samples') and not self.hasType('saccade'):
+            return 'samples'
+        elif channel in self.main.GAZE_COMPONENTS_LIST and self.hasType('gaze') and not self.hasType('fixations'):
+            return 'gaze'
+        else:
+            return channel
+
+
+
+
     def getIds(self, id:str) -> list:
         """Queries settings for nodes with particular id attribute.
         
@@ -137,7 +156,7 @@ class SettingsReader:
             l.append(el.get(field))
         return np.unique(l)
 
-    def getPathAttrById(self, type:str, id:str, absolute:bool=False) -> str:
+    def getPathAttrById(self, type:str, id:str, absolute:bool = False) -> str:
         """Returns path of a file suitable as a record tag.
 
         Except it still contains type and id tags.
@@ -147,13 +166,19 @@ class SettingsReader:
         :param absolute: whether to concatenate with a dataDir and leave extension.
         :return: path str.
         """
-        file=self.getTypeById(type, id)
-        path=file.get('path')
+        typeZeroName = self.substVersatileChannels(type)
+
+        file = self.getTypeById(typeZeroName, id)
+        path = file.get('path')
 
         if absolute:
             return '{0}/{1}'.format(self.dataDir, path)
         else:
             return os.path.splitext(path)[0]
+
+
+
+
 
     def getTypeById(self, type:str, id:str) -> object:
         """Filters settings nodes by both type and id.
@@ -181,9 +206,9 @@ class SettingsReader:
         try:
             Utils.parseTime(zeroTime)
         except:
-            self.topWindow.reportError()
-            self.topWindow.setStatus('ERROR: Probably zeroTime attribute for type {0}, id {1} wrongly defined in settings.'.format(type, id))
-            self.topWindow.setStatus('ERROR: Consider correcting it or omit file entirely.')
+            self.main.reportError()
+            self.main.setStatus('ERROR: Probably zeroTime attribute for type {0}, id {1} wrongly defined in settings.'.format(type, id))
+            self.main.setStatus('ERROR: Consider correcting it or omit file entirely.')
             raise
 
         if parse:
@@ -343,11 +368,11 @@ class SettingsReader:
         :param saveDir: Path to write into.
         :return: 
         """
-        #self.main.logger.debug('writing settings...')
-        #self.settingsTree.write(saveDir + '/' + os.path.basename(self.settingsFile))
+        self.main.logger.debug('writing settings...')
+        self.settingsTree.write(saveDir + '/' + os.path.basename(self.settingsFile))
         #TODO
-        bs = BeautifulSoup(self.settingsTree)
-        print(bs.prettify())
+        #bs = BeautifulSoup(self.settingsTree)
+        #print(bs.prettify())
 
     def md5(self, fname:str)->str:
         """Calculates and returns MD5 hash checksum of a file.
